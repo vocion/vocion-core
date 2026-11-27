@@ -1,18 +1,20 @@
 /**
  * The Zendesk calls a hand-off makes, against a fake Zendesk: the requester is
- * found or fixed in the agreed order and is always the caller, a ticket's 404
+ * found or made in the agreed order, is always the caller, is never an agent
+ * or admin, and no existing user is ever changed; a ticket's 404
  * reads as gone, and a create sends the stored body byte for byte with its
  * Idempotency-Key.
  */
 import type { ZendeskCredentials } from './client';
+import type { Answer } from './fakeZendesk';
 import { describe, expect, it } from 'vitest';
 import { ZendeskError } from './client';
 import { depsFor, FakeZendesk, tokenAnswer } from './fakeZendesk';
-import { createTicket, requesterIdFor, ticketByExternalId, ticketStatus } from './tickets';
+import { createTicket, EMAIL_SEARCH_MAX_PAGES, requesterIdFor, RequesterNotEndUserError, ticketByExternalId, ticketStatus } from './tickets';
 
 const TOKENS = '/oauth/tokens';
 const SEARCH = '/api/v2/users/search';
-const CREATE_OR_UPDATE = '/api/v2/users/create_or_update';
+const USERS = '/api/v2/users';
 const CALLER = { id: 'doc-123', name: 'Pat Example', email: 'pat@example.com' };
 
 let clientCount = 0;
@@ -32,47 +34,154 @@ function sentBody(call: { init: RequestInit }): unknown {
   return JSON.parse(String(call.init.body));
 }
 
+/**
+ * A users search answer.
+ * @param users - The users it lists.
+ */
+function found(...users: Array<Record<string, unknown>>): Answer {
+  return { status: 200, body: { users } };
+}
+
+/**
+ * The methods of every call except the token mint, so a test can say nothing was written.
+ * @param fake - The fake Zendesk.
+ */
+function apiMethods(fake: FakeZendesk): string[] {
+  return fake.calls.filter(call => !call.url.includes(TOKENS)).map(call => call.init.method ?? 'GET');
+}
+
+/**
+ * What each users search asked for, as `external_id=…` or `query=…`.
+ * @param fake - The fake Zendesk.
+ */
+function searches(fake: FakeZendesk): string[] {
+  return fake.sentTo(SEARCH).map(call => new URL(call.url).search.slice(1));
+}
+
 describe('requesterIdFor', () => {
-  it('uses the user whose external id is the caller id, and changes nothing', async () => {
-    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [{ status: 200, body: { users: [{ id: 501 }] } }] });
+  it('uses the end user whose external id is the caller id, and changes nothing', async () => {
+    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [found({ id: 501, role: 'end-user' })] });
 
     const id = await requesterIdFor(freshClient(), CALLER, depsFor(fake));
 
     expect(id).toBe(501);
-    expect(fake.sentTo(SEARCH).map(call => new URL(call.url).searchParams.get('external_id'))).toEqual(['doc-123']);
-    expect(fake.calls.filter(call => !call.url.includes(TOKENS)).map(call => call.init.method ?? 'GET')).toEqual(['GET']);
+    expect(searches(fake)).toEqual(['external_id=doc-123']);
+    expect(apiMethods(fake)).toEqual(['GET']);
   });
 
-  it('moves a user an earlier tool keyed by email over to the caller id instead of making a second user', async () => {
-    const fake = new FakeZendesk({
-      [TOKENS]: [tokenAnswer('tok-1')],
-      [SEARCH]: [{ status: 200, body: { users: [] } }, { status: 200, body: { users: [{ id: 777 }] } }],
-      '/api/v2/users/777': [{ status: 200, body: { user: { id: 777 } } }],
-    });
+  it('uses an end user an earlier tool keyed by email as is, without moving its external id', async () => {
+    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [found(), found({ id: 777, role: 'end-user' })] });
 
     const id = await requesterIdFor(freshClient(), CALLER, depsFor(fake));
 
     expect(id).toBe(777);
-    expect(fake.sentTo(SEARCH).map(call => new URL(call.url).searchParams.get('external_id'))).toEqual(['doc-123', 'pat@example.com']);
-
-    const [put] = fake.sentTo('/api/v2/users/777');
-
-    expect(put!.init.method).toBe('PUT');
-    expect(sentBody(put!)).toEqual({ user: { external_id: 'doc-123' } });
-    expect(fake.sentTo(CREATE_OR_UPDATE)).toHaveLength(0);
+    expect(searches(fake)).toEqual(['external_id=doc-123', 'external_id=pat%40example.com']);
+    expect(apiMethods(fake)).toEqual(['GET', 'GET']);
   });
 
-  it('creates the user from the caller\'s own name, email and id when neither lookup finds one', async () => {
+  it('uses the existing end user whose email is the caller\'s, ignoring case and partial matches', async () => {
     const fake = new FakeZendesk({
       [TOKENS]: [tokenAnswer('tok-1')],
-      [SEARCH]: [{ status: 200, body: { users: [] } }],
-      [CREATE_OR_UPDATE]: [{ status: 201, body: { user: { id: 900 } } }],
+      [SEARCH]: [found(), found(), found({ id: 300, role: 'end-user', email: 'spat@example.com' }, { id: 410, role: 'end-user', email: 'Pat@Example.com' })],
+    });
+
+    const id = await requesterIdFor(freshClient(), CALLER, depsFor(fake));
+
+    expect(id).toBe(410);
+    expect(searches(fake)[2]).toBe('query=email%3Apat%40example.com&per_page=100&page=1');
+    expect(apiMethods(fake)).toEqual(['GET', 'GET', 'GET']);
+  });
+
+  it('reads the next page of the email search while Zendesk says there is one', async () => {
+    const fake = new FakeZendesk({
+      [TOKENS]: [tokenAnswer('tok-1')],
+      [SEARCH]: [
+        found(),
+        found(),
+        { status: 200, body: { users: [{ id: 300, role: 'end-user', email: 'pat@example.com.au' }], next_page: 'https://acme.zendesk.com/api/v2/users/search.json?page=2' } },
+        { status: 200, body: { users: [{ id: 410, role: 'end-user', email: 'pat@example.com' }], next_page: null } },
+      ],
+    });
+
+    const id = await requesterIdFor(freshClient(), CALLER, depsFor(fake));
+
+    expect(id).toBe(410);
+    expect(searches(fake).slice(2)).toEqual(['query=email%3Apat%40example.com&per_page=100&page=1', 'query=email%3Apat%40example.com&per_page=100&page=2']);
+  });
+
+  it('stops paging the email search at the cap and goes on to the create, which changes no existing user', async () => {
+    const endless: Answer = { status: 200, body: { users: [{ id: 300, role: 'end-user', email: 'pat@example.com.au' }], next_page: 'https://acme.zendesk.com/api/v2/users/search.json?page=next' } };
+    const fake = new FakeZendesk({
+      [TOKENS]: [tokenAnswer('tok-1')],
+      [SEARCH]: [found(), found(), endless],
+      [USERS]: [{ status: 201, body: { user: { id: 900, role: 'end-user' } } }],
     });
 
     const id = await requesterIdFor(freshClient(), CALLER, depsFor(fake));
 
     expect(id).toBe(900);
-    expect(sentBody(fake.sentTo(CREATE_OR_UPDATE)[0]!)).toEqual({ user: { name: 'Pat Example', email: 'pat@example.com', external_id: 'doc-123' } });
+    expect(searches(fake).filter(search => search.startsWith('query='))).toHaveLength(EMAIL_SEARCH_MAX_PAGES);
+    expect(fake.sentTo(USERS).map(call => call.init.method)).toEqual(['POST']);
+  });
+
+  it('picks the lowest id when more than one end user matches, so every tap files for the same one', async () => {
+    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [found({ id: 900, role: 'end-user' }, { id: 500, role: 'end-user' })] });
+
+    expect(await requesterIdFor(freshClient(), CALLER, depsFor(fake))).toBe(500);
+  });
+
+  it('keeps the caller\'s email out of the error when Zendesk answers a lookup with a malformed user', async () => {
+    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [found({ role: 'end-user' })] });
+
+    const failed = await requesterIdFor(freshClient(), CALLER, depsFor(fake)).catch((error: unknown) => error);
+
+    expect(failed).toBeInstanceOf(ZendeskError);
+    expect((failed as Error).message).not.toContain('example.com');
+    expect((failed as Error).message).not.toContain('doc-123');
+  });
+
+  it.each([
+    ['their id as external id', [found({ id: 8, role: 'agent' })]],
+    ['their email as external id', [found(), found({ id: 8, role: 'admin' })]],
+    ['their email', [found(), found(), found({ id: 8, role: 'admin', email: 'pat@example.com' })]],
+  ])('stops without writing anything when %s matches a Zendesk agent or admin', async (_step, answers) => {
+    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: answers });
+
+    const failed = await requesterIdFor(freshClient(), CALLER, depsFor(fake)).catch((error: unknown) => error);
+
+    expect(failed).toBeInstanceOf(RequesterNotEndUserError);
+    expect(failed).toMatchObject({ zendeskUserId: 8 });
+    expect(apiMethods(fake).every(method => method === 'GET')).toBe(true);
+  });
+
+  it('stops when an agent shares the caller\'s external id with an end user, rather than picking the end user', async () => {
+    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [found({ id: 501, role: 'end-user' }, { id: 8, role: 'agent' })] });
+
+    await expect(requesterIdFor(freshClient(), CALLER, depsFor(fake))).rejects.toBeInstanceOf(RequesterNotEndUserError);
+  });
+
+  it('treats a matched user with no role as not an end user', async () => {
+    const fake = new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [found({ id: 501 })] });
+
+    await expect(requesterIdFor(freshClient(), CALLER, depsFor(fake))).rejects.toBeInstanceOf(RequesterNotEndUserError);
+  });
+
+  it('creates a new end user with POST /api/v2/users from the caller\'s own name, email and id when no lookup matches', async () => {
+    const fake = new FakeZendesk({
+      [TOKENS]: [tokenAnswer('tok-1')],
+      [SEARCH]: [found(), found(), found({ id: 8, role: 'agent', email: 'pat@example.com.au' })],
+      [USERS]: [{ status: 201, body: { user: { id: 900, role: 'end-user' } } }],
+    });
+
+    const id = await requesterIdFor(freshClient(), CALLER, depsFor(fake));
+
+    expect(id).toBe(900);
+
+    const [create] = fake.sentTo(USERS);
+
+    expect(create!.init.method).toBe('POST');
+    expect(sentBody(create!)).toEqual({ user: { name: 'Pat Example', email: 'pat@example.com', external_id: 'doc-123', role: 'end-user' } });
+    expect(fake.sentTo('/api/v2/users/create_or_update')).toHaveLength(0);
   });
 });
 

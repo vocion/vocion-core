@@ -24,7 +24,9 @@
  *   refused again, and the next tap builds a fresh one.
  *
  * - THE REQUESTER IS THE CALLER. The ticket is filed for the end user who
- *   tapped (`requesterIdFor`), never anyone the model named. Subject prefix and
+ *   tapped (`requesterIdFor`), never anyone the model named, and never a
+ *   Zendesk agent or admin: a staff match stops the hand-off as
+ *   REQUESTER_NOT_END_USER and closes the row, changing no one. Subject prefix and
  *   tags come from the source's `tickets` settings, never the model.
  */
 import type { ActionCaller } from '@/libs/actions/types';
@@ -36,7 +38,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { withAdvisoryLock } from '@/libs/advisoryLock';
 import { db } from '@/libs/DB';
 import { ZendeskError } from '@/libs/zendesk/client';
-import { createTicket, requesterIdFor, ticketByExternalId, ticketStatus, UNSOLVED_TICKET_STATUSES } from '@/libs/zendesk/tickets';
+import { createTicket, requesterIdFor, RequesterNotEndUserError, ticketByExternalId, ticketStatus, UNSOLVED_TICKET_STATUSES } from '@/libs/zendesk/tickets';
 import { ticketSubjectFor, ticketTagsFor } from '@/libs/zendesk/ticketSettings';
 import { knowledgeSourceSchema, ticketHandoffSchema } from '@/models/Schema';
 
@@ -78,7 +80,9 @@ export type TicketHandoffErrorCode
   /** Zendesk refused a call outright. Not retryable as is. */
     | 'ZENDESK_REFUSED'
   /** The conversation's open hand-off was started by a different end user. */
-    | 'CALLER_MISMATCH';
+    | 'CALLER_MISMATCH'
+  /** The caller matched a Zendesk agent or admin, so no ticket is filed for them. Not retryable. */
+    | 'REQUESTER_NOT_END_USER';
 
 export class TicketHandoffError extends Error {
   readonly code: TicketHandoffErrorCode;
@@ -276,6 +280,9 @@ export function handoffExternalId(row: Pick<HandoffRow, 'idempotencyKey'>): stri
  * requester lookup (no body was stored yet) and the create itself (a 4xx
  * creates nothing). A refused read keeps the row open, because an earlier
  * create may have gone through, and a fresh row would open a second ticket.
+ *
+ * A requester that is not an end user is a refusal of our own, made before
+ * any body is stored, so it closes the row the same way.
  * @param row - The hand-off row.
  * @param closeOnRefusal - Whether a refusal may close the row.
  * @param call - The call.
@@ -284,15 +291,18 @@ async function zendeskCall<T>(row: HandoffRow, closeOnRefusal: boolean, call: ()
   try {
     return await call();
   } catch (error) {
-    if (!(error instanceof ZendeskError)) {
+    if (!(error instanceof ZendeskError) && !(error instanceof RequesterNotEndUserError)) {
       throw error;
     }
-    const retryable = error.status === null || error.status === 429 || error.status >= 500;
+    const retryable = error instanceof ZendeskError && (error.status === null || error.status === 429 || error.status >= 500);
     if (retryable) {
       await updateHandoff(row.id, { lastError: error.message });
       throw new TicketHandoffError('ZENDESK_UNAVAILABLE', `Zendesk could not be reached or was busy, so no ticket was opened yet: ${error.message}`);
     }
     await updateHandoff(row.id, closeOnRefusal ? { status: 'closed', lastError: error.message, closedAt: new Date() } : { lastError: error.message });
+    if (error instanceof RequesterNotEndUserError) {
+      throw new TicketHandoffError('REQUESTER_NOT_END_USER', error.message);
+    }
     throw new TicketHandoffError('ZENDESK_REFUSED', `Zendesk refused the hand-off: ${error.message}`);
   }
 }

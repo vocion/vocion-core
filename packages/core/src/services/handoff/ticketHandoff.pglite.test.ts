@@ -21,6 +21,7 @@ vi.mock('@/libs/DB');
 const ORG = 'org_handoff';
 const TOKENS = '/oauth/tokens';
 const SEARCH = '/api/v2/users/search';
+const USERS = '/api/v2/users';
 const TICKETS = '/api/v2/tickets';
 const CALLER = { id: 'doc-123', name: 'Pat Example', email: 'pat@example.com' };
 const SETTINGS = zendeskTicketSettingsSchema.parse({ topicTags: { billing: 'billing_queue' }, fallbackTopicTag: 'else', tags: ['vocion-dev'], subjectPrefix: '[TEST]' });
@@ -44,7 +45,7 @@ async function newConversation(): Promise<number> {
  * @param tickets - Answers by path, merged over the defaults.
  */
 function zendesk(tickets: Record<string, Answer[]>): FakeZendesk {
-  return new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [{ status: 200, body: { users: [{ id: 501 }] } }], ...tickets });
+  return new FakeZendesk({ [TOKENS]: [tokenAnswer('tok-1')], [SEARCH]: [{ status: 200, body: { users: [{ id: 501, role: 'end-user' }] } }], ...tickets });
 }
 
 /**
@@ -212,6 +213,63 @@ describe('handOffToTicket', () => {
     const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
 
     expect(failed).toMatchObject({ code: 'ZENDESK_REFUSED', retryable: false });
+    expect(await openHandoffFor(ORG, conversationId)).toBeNull();
+  });
+
+  it('stops without a ticket or any user change when the caller matches a Zendesk agent, and closes the hand-off', async () => {
+    const conversationId = await newConversation();
+    const credentials = freshClient();
+    const fake = zendesk({
+      [SEARCH]: [{ status: 200, body: { users: [{ id: 8, role: 'agent' }] } }],
+      [TICKETS]: [{ status: 200, body: { tickets: [] } }, { status: 201, body: { ticket: { id: 42, status: 'new' } } }],
+    });
+
+    const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
+
+    expect(failed).toMatchObject({ code: 'REQUESTER_NOT_END_USER', retryable: false });
+    expect(creates(fake)).toHaveLength(0);
+    expect(fake.sentTo(USERS)).toHaveLength(0);
+    expect(new Set(fake.calls.filter(call => !call.url.includes(TOKENS)).map(call => call.init.method ?? 'GET'))).toEqual(new Set(['GET']));
+    expect(await openHandoffFor(ORG, conversationId)).toBeNull();
+  });
+
+  it('keeps the hand-off open when the requester\'s create times out, and the next tap opens exactly one ticket', async () => {
+    const conversationId = await newConversation();
+    const credentials = freshClient();
+    const fake = zendesk({
+      [SEARCH]: [{ status: 200, body: { users: [] } }],
+      [USERS]: [new Error('socket hang up'), { status: 201, body: { user: { id: 900, role: 'end-user' } } }],
+      [TICKETS]: [{ status: 200, body: { tickets: [] } }, { status: 201, body: { ticket: { id: 44, status: 'new' } } }],
+    });
+
+    const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
+
+    expect(failed).toMatchObject({ code: 'ZENDESK_UNAVAILABLE', retryable: true });
+
+    const open = await openHandoffFor(ORG, conversationId);
+
+    expect(open?.requestBody).toBeNull();
+
+    const retried = await handOffToTicket(tap(conversationId, fake, credentials));
+
+    expect(retried).toMatchObject({ ticketId: 44, created: true });
+    expect(creates(fake)).toHaveLength(1);
+    expect(JSON.parse(String(creates(fake)[0]!.init.body)).ticket.requester_id).toBe(900);
+  });
+
+  it('closes the hand-off without a ticket when Zendesk refuses the requester\'s create', async () => {
+    const conversationId = await newConversation();
+    const credentials = freshClient();
+    const fake = zendesk({
+      [SEARCH]: [{ status: 200, body: { users: [] } }],
+      [USERS]: [{ status: 422, body: { error: 'RecordInvalid' } }],
+      [TICKETS]: [{ status: 200, body: { tickets: [] } }],
+    });
+
+    const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
+
+    expect(failed).toMatchObject({ code: 'ZENDESK_REFUSED', retryable: false });
+    expect(creates(fake)).toHaveLength(0);
     expect(await openHandoffFor(ORG, conversationId)).toBeNull();
   });
 
